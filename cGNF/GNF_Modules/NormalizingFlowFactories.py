@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from .Normalizers import *
+from .Normalizers import MonotonicNormalizer, AffineNormalizer, SplineNormalizer
 from .Conditionners import *
 from .NormalizingFlow import NormalizingFlowStep, FCNormalizingFlow, CNNormalizingFlow
 from math import pi
@@ -28,7 +28,7 @@ class NormalLogDensity_UC(nn.Module):
     def forward(self, z):
 #         print(-.5 * (torch.log(self.pi * 2) + z ** 2).sum(1))
 #         print(self.Z_mvn.log_prob(z))
-        
+
         return self.Z_mvn.log_prob(z)#, -.5 * (torch.log(self.pi * 2) + z ** 2).sum(1)
 
 
@@ -42,10 +42,27 @@ def buildFCNormalizingFlow(nb_steps, conditioner_type, conditioner_args, normali
     return FCNormalizingFlow(flow_steps, NormalLogDensity())
 
 
-def buildFCNormalizingFlow_UC(nb_steps, conditioner_type, conditioner_args, normalizer_type, normalizer_args):
+def buildFCNormalizingFlow_UC(
+    nb_steps,
+    conditioner_type,
+    conditioner_args,
+    normalizer_type,
+    normalizer_args,
+    data_mu=None,
+    data_sigma=None,
+    cat_dims=None
+):
     flow_steps = []
     for step in range(nb_steps):
         conditioner = conditioner_type(**conditioner_args)
+        # If using spline, forward data statistics and cat dims
+        if normalizer_type is SplineNormalizer:
+            if data_mu is not None:
+                normalizer_args.setdefault("mu", data_mu)
+            if data_sigma is not None:
+                normalizer_args.setdefault("sigma", data_sigma)
+            if cat_dims is not None:
+                normalizer_args.setdefault("cat_dims", cat_dims)
         normalizer = normalizer_type(**normalizer_args)
         flow_step = NormalizingFlowStep(conditioner, normalizer)
         flow_steps.append(flow_step)
@@ -84,7 +101,7 @@ def buildMNISTNormalizingFlow(nb_inner_steps, normalizer_type, normalizer_args, 
                 A_prior = MNIST_A_prior(img_sizes[i][1], prior_kernel) if prior_kernel is not None else None
                 cond = DAGConditioner(in_size, hidden, emb_s, l1=l1, nb_epoch_update=nb_epoch_update,
                                       hot_encoding=hot_encoding, A_prior=A_prior)
-                if normalizer_type is MonotonicNormalizer:
+                if normalizer_type in (MonotonicNormalizer, SplineNormalizer):
                     emb_s = 30 + in_size if hot_encoding else 30
                     norm = normalizer_type(**normalizer_args, cond_size=emb_s)
                 else:
@@ -104,7 +121,7 @@ def buildMNISTNormalizingFlow(nb_inner_steps, normalizer_type, normalizer_args, 
             A_prior = MNIST_A_prior(28, prior_kernel) if prior_kernel is not None else None
             cond = DAGConditioner(1*28*28, hidden, emb_s, l1=l1, nb_epoch_update=nb_epoch_update,
                                   hot_encoding=hot_encoding, A_prior=A_prior)
-            if normalizer_type is MonotonicNormalizer:
+            if normalizer_type in (MonotonicNormalizer, SplineNormalizer):
                 emb_s = 30 + 28*28 if hot_encoding else 30
                 norm = normalizer_type(**normalizer_args, cond_size=emb_s)
             else:

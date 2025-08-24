@@ -61,12 +61,12 @@ def simulate_and_save(path, dataset_name, N=20000, seed=0):
     print(f"Saved DAG adjacency to {dag_file}")
 
 def main():
-    base = "test_spline_run/"
+    base = "normal_spline_run/"
     if os.path.isdir(base):
         shutil.rmtree(base)
     os.makedirs(base, exist_ok=True)
 
-    dataset_name = "toy"
+    dataset_name = "normal"
     simulate_and_save(base, dataset_name, N=500, seed=123)
 
     # Preprocess
@@ -75,7 +75,7 @@ def main():
         dataset_name=dataset_name,
         dag_name=f"{dataset_name}_DAG",
         test_size=0.2,
-        cat_var=[],  # C is continuous under the new DGP
+        cat_var=None,  # C is continuous under the new DGP
         seed=123
     )
     print("Preprocessing complete.")
@@ -84,7 +84,7 @@ def main():
     model, data = train(
         path=base,
         dataset_name=dataset_name,
-        model_name="toy_model_spline",
+        model_name="normal_model_spline",
         trn_batch_size=128,
         val_batch_size=2048,
         learning_rate=1e-4,
@@ -105,9 +105,9 @@ def main():
     sim(
         path=base,
         dataset_name=dataset_name,
-        model_name="toy_model_spline",
+        model_name="normal_model_spline",
         n_mce_samples=50000,
-        inv_datafile_name="sim_toy_spline",
+        inv_datafile_name="sim_normal_spline",
         treatment="A",
         cat_list=[0,1],
         moderator=None,

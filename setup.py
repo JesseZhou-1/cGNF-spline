@@ -1,8 +1,8 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='cGNF',
-    version='1.0.0',  # start with a small number and increment it with every change
+    name='cGNF_spline',
+    version='0.0.2',  # start with a small number and increment it with every change
     packages=find_packages(),
     install_requires=[
         'torch',
@@ -13,13 +13,13 @@ setup(
         'causalgraphicalmodels',
         'UMNN',
         'joblib',
+        'nflows',
     ],
     author='cGNF-Team',
     author_email='cgnf.team@gmail.com',
-    description='A Python Module for Implementing causal-Graphical Normalizing Flows.',
+    description='Causal Graph Normalizing Flows with SplineNormalizer',
     long_description=open('README.md').read(),
     long_description_content_type="text/markdown",
-    url='https://github.com/cGNF-Dev/cGNF',
     license='BSD License',
     classifiers=[
         'Programming Language :: Python :: 3',

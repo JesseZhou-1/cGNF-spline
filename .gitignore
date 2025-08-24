@@ -1,26 +1,26 @@
-# Mac system files
-.DS_Store
-
-# PyCharm IDE configuration
-.idea/
-
-# Python build and packaging directories
+# Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.egg-info/
+*.egg
 dist/
 build/
 
-# Virtual environment directories
+# Virtual envs
+.venv/
 venv/
-*.venv/
 env/
+*.env
 
-# Jupyter Notebook temporary files
-.ipynb_checkpoints/
+# PyCharm
+.idea/
 
-# Miscellaneous
+# OS X
+.DS_Store
+
+# Logs, checkpoints, outputs
 *.log
-*.swp
-*.bak
+*.ckpt
+runs/
+outputs/
+test/

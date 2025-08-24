@@ -1,4 +1,6 @@
 
+# cGNF training function wrapper with some important arguments
+
 import os
 import math
 import random
@@ -6,27 +8,32 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import TensorDataset, DataLoader
 import torch.cuda
-import torch.backends.cudnn as cudnn
 from timeit import default_timer as timer
 import pickle
 
-# Need to first install the modules from GitHub
-# run command-line 'pip install git+https://github.com/JesseZhou-1/GNF-Modules.git' in Terminal
-
 # install the modules
-from cGNF.GNF_Modules.Normalizers import *
+from cGNF.GNF_Modules.Normalizers import AffineNormalizer, MonotonicNormalizer, SplineNormalizer
 from cGNF.GNF_Modules.Conditionners import *
 from cGNF.GNF_Modules.NormalizingFlowFactories import buildFCNormalizingFlow_UC
 from cGNF.GNF_Modules.NormalizingFlow import *
 
 cond_types = {"DAG": DAGConditioner, "Coupling": CouplingConditioner,
               "Autoregressive": AutoregressiveConditioner}  # types of conditioners
-norm_types = {"affine": AffineNormalizer, "monotonic": MonotonicNormalizer}  # types of transformers/normalizers
+norm_types = {
+    "affine": AffineNormalizer,
+    "monotonic": MonotonicNormalizer,
+    "spline": SplineNormalizer
+}  # types of transformers/normalizers
 
-def train(path="", dataset_name="" , model_name="models",
+def train(path="", dataset_name="" ,model_name= "models",
           trn_batch_size=128, val_batch_size=4096, learning_rate=1e-4, seed=None, nb_epoch=50000,
           emb_net=[100, 90, 80, 70, 60],
-          int_net=[60,50,40,30, 20], nb_estop=50, val_freq =1):
+          int_net=[60,50,40,30, 20],
+          norm_type="monotonic",
+          num_bins=8,
+          bound=3.0,
+          spline_hidden_dims=(64,64),
+          nb_estop=50, val_freq =1):
 
     # set cuda device for pytorch if available
     device = "cpu" if not (torch.cuda.is_available()) else "cuda:0"
@@ -44,6 +51,7 @@ def train(path="", dataset_name="" , model_name="models",
         torch.cuda.manual_seed_all(seed)
         torch.backends.cudnn.deterministic = True # ensures that the CUDA backend for PyTorch (CuDNN) uses deterministic algorithms.
         torch.backends.cudnn.benchmark = True # enables the CuDNN autotuner, which selects the best algorithm for CuDNN operations given the current hardware setup.
+
 
     path_save = os.path.join(path, model_name)
 
@@ -75,6 +83,7 @@ def train(path="", dataset_name="" , model_name="models",
     df_filename = dataset_filepath + '.csv'
     df = pd.read_csv(df_filename)
 
+
     # Create PyTorch TensorDataset from numpy data
     d_trn = TensorDataset(torch.from_numpy(trn).float())
     d_val = TensorDataset(torch.from_numpy(val).float())
@@ -89,7 +98,7 @@ def train(path="", dataset_name="" , model_name="models",
     nb_step_dual = 50 # nb_step_dual: number of step between updating Acyclicity constraint and sparsity constraint, which is used in dual optimization.
     l1 = .5 # l1: Maximum weight for l1 regularization (Lasso) for the DagConditioner.
     gumble_T = .5 # gumble_T: Temperature of the gumble distribution.
-    norm_type = 'monotonic' # norm_type: the type of normalizer to use ('affine' or 'monotonic').
+    # norm_type = 'monotonic' # norm_type: the type of normalizer to use ('affine' or 'monotonic').
     nb_steps = 50 # nb_steps: the number of steps to take for optimization (integration) in Normalizer.
     solver = "CC" # Clenshaw-Curtis quadrature optimization algorithm (integral solver) in the normalizer.
 
@@ -121,16 +130,28 @@ def train(path="", dataset_name="" , model_name="models",
         conditioner_args['A_prior'] = A.to(device)
         conditioner_args['Z_Sigma'] = Z_Sigma.to(device)
 
-
     normalizer_type = norm_types[norm_type]
-    if normalizer_type is MonotonicNormalizer:
-        normalizer_args = {"integrand_net": int_net, "cond_size": emb_net[-1], "nb_steps": nb_steps,
-                           "solver": solver,
-                           "mu": data_mu, "sigma": data_sigma,
-                           # standardize the input data, comment to learn cGNF on unstandardized data
-                           # "cat_dims": None
-                           "cat_dims": cat_dims  # categorical dimensions for Gaussian dequantization
-                           }
+    # all flow-based normalizers require the conditioner output size
+    if normalizer_type in (MonotonicNormalizer, SplineNormalizer):
+        normalizer_args = {"cond_size": emb_net[-1]}
+        if normalizer_type is MonotonicNormalizer:
+            normalizer_args.update({
+                "integrand_net": int_net,
+                "nb_steps": nb_steps,
+                "solver": solver,
+                "mu": data_mu,
+                "sigma": data_sigma,
+                "cat_dims": cat_dims
+            })
+        elif normalizer_type is SplineNormalizer:
+            normalizer_args.update({
+                "num_bins": num_bins,
+                "bound": bound,
+                "hidden_dims": spline_hidden_dims,
+                "mu": data_mu,
+                "sigma": data_sigma,
+                "cat_dims": cat_dims
+            })
     else:
         normalizer_args = {}
 
@@ -139,6 +160,7 @@ def train(path="", dataset_name="" , model_name="models",
 
     # Creating the cGNF model
     model = buildFCNormalizingFlow_UC(nb_flow, conditioner_type, conditioner_args, normalizer_type, normalizer_args)
+
     _best_valid_loss = np.inf  # initializing the variable '_best_valid_loss' with the value of positive infinity (np.inf).
 
     ## Initializing an instance of the AdamW optimizer in Pytorch
@@ -210,6 +232,7 @@ def train(path="", dataset_name="" , model_name="models",
                 # Calculate validation loss at specified intervals of the training
                 if n_iters % n_iters_val == 0: #the model's validation loss is evaluated every 'n_iters_val' steps of training (the number of iteration is the integer multiple of 'n_iters_val').
                     n_estop += n_iters_val / epoch_iters #n_estop is to track how many epochs have passed without improvement on the validation set. for n_estop to reach 50, the current model would have to go through  '50 % n_iters_val / epoch_iters' epochs without improving its validation loss.
+
                     # Valid loop
                     model.eval() # Set the model to evaluation mode
                     ll_val = 0. # Initialize validation loss
@@ -236,7 +259,6 @@ def train(path="", dataset_name="" , model_name="models",
                         if -ll_val < _best_valid_loss: # If the current model performs better than all previous model, n_estop will be reset to 0. Else, n_estop will not reset and will instead increment.
                             n_estop = 0 # It's incremented each time validation happens and reset to 0 each time a new best validation loss is found. If the value of n_estop exceeds the early stopping threshold nb_estop, the training is stopped early.
                             _best_valid_loss = -ll_val # replace the best validation loss with the current value
-
                             torch.save(model, os.path.join(path_save,'_best_model.pt'))  # save the current best validation model.
                             torch.save(opt.state_dict(), os.path.join(path_save,'_best_optimizer.pt'))  # save the current best validation optimizer state.
 
