@@ -47,22 +47,11 @@ def buildFCNormalizingFlow_UC(
     conditioner_type,
     conditioner_args,
     normalizer_type,
-    normalizer_args,
-    data_mu=None,
-    data_sigma=None,
-    cat_dims=None
+    normalizer_args
 ):
     flow_steps = []
     for step in range(nb_steps):
         conditioner = conditioner_type(**conditioner_args)
-        # If using spline, forward data statistics and cat dims
-        if normalizer_type is SplineNormalizer:
-            if data_mu is not None:
-                normalizer_args.setdefault("mu", data_mu)
-            if data_sigma is not None:
-                normalizer_args.setdefault("sigma", data_sigma)
-            if cat_dims is not None:
-                normalizer_args.setdefault("cat_dims", cat_dims)
         normalizer = normalizer_type(**normalizer_args)
         flow_step = NormalizingFlowStep(conditioner, normalizer)
         flow_steps.append(flow_step)
