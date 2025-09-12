@@ -80,11 +80,16 @@ class NormalizingFlowStep(NormalizingFlow):
         if self.cat_dims is not None:
             self.U_noise = MultivariateNormal(torch.zeros(len(self.cat_dims)), torch.eye(len(self.cat_dims))/(6*4))
             
-            
-            
+        self.apply_data_normalization = True
+        self.add_cat_noise = (self.cat_dims is not None)
+
+
     def forward(self, x_unnorm, context=None):
         with torch.no_grad():
-            x = (x_unnorm-self.mu.data)/self.sigma.data
+            if self.apply_data_normalization and (self.mu is not None or self.sigma is not None):
+                x = (x_unnorm - self.mu.data) / self.sigma.data
+            else:
+                x = x_unnorm
 
 #         print(f'f_x_mu=\n{self.mu.data}')
 #         print(f'f_x_sigma=\n{self.sigma.data}')
@@ -92,14 +97,14 @@ class NormalizingFlowStep(NormalizingFlow):
 #         print(f'f_x=\n{x[:4]}')
         h = self.conditioner(x, context)
 #         print(f'f_h=\n{h.sum()}')
-    
+
 #         print(f'f_x_mu=\n{self.mu.data}')
 #         print(f'f_x_sigma=\n{self.sigma.data}')
 #         print(f'f_x_unnorm=\n{x_unnorm[:4]}')
 #         print(f'f_x=\n{x[:4]}')
 
-        # if self.training:
-        if self.cat_dims is not None:
+        # Add categorical dequantization noise only if enabled
+        if self.add_cat_noise and (self.cat_dims is not None):
     #             keys = self.cat_dims.keys()
                 keys = list(self.cat_dims)#.keys()
     #             print(keys)
@@ -117,12 +122,12 @@ class NormalizingFlowStep(NormalizingFlow):
 #                     u_noise[:,keys] = torch.normal(u_noise[:,keys],1/(6)).float().to(x.device)
 #                 else:
 #                     u_noise[:,keys] = torch.ones(torch.Size([x.shape[0],len(keys)])).to(x.device)*0.0#.float()
-                x = x + u_noise 
+                x = x + u_noise
 
         z, jac = self.normalizer(x, h, context)
 #         print(f'f_z=\n{z[:4]}')
-        
-        
+
+
         return z, torch.log(jac).sum(1)+self.norm_jac
 
     def constraintsLoss(self):
@@ -159,7 +164,7 @@ class NormalizingFlowStep(NormalizingFlow):
             if self.cat_dims is not None:
                 cat_dims = list(self.cat_dims.keys())
                 n_cats = list(self.cat_dims.values())
-                    
+
     #         i=0
     #         while torch.norm(x - x_prev) > 5e-4:
             for i in range(self.conditioner.depth() + 1):
@@ -198,7 +203,7 @@ class NormalizingFlowStep(NormalizingFlow):
             #                 x[:, self.cat_dims]=torch.floor(x[:, self.cat_dims])
             #                 x[:, self.cat_dims]=(x[:, self.cat_dims] >= 1.0).float()
                         x[:, cat_dims] = (x[:, cat_dims]-self.mu.data[cat_dims])/self.sigma.data[cat_dims]
-                
+
                 if torch.norm(x - x_prev) == 0.0:
     #                 if self.mu is not None or self.sigma is not None:
     #                     with torch.no_grad():
@@ -211,7 +216,8 @@ class NormalizingFlowStep(NormalizingFlow):
     #         print(f'i_x_unnorm_final=\n{x_unnorm[:4]}')
     #         print(f'i_x_final=\n{x[:4]}')
 #             x[:, cat_dims]=(x[:, cat_dims]*self.sigma.data[cat_dims])+self.mu.data[cat_dims]
-            x = (x*self.sigma.data)+self.mu.data
+            if self.apply_data_normalization and (self.mu is not None or self.sigma is not None):
+                x = (x * self.sigma.data) + self.mu.data
             if self.cat_dims is not None:
                 for cat_dim, n_cat in self.cat_dims.items():
                     x[:, cat_dim]=torch.abs(torch.clamp(torch.round(x[:, cat_dim]), min=0.0, max=n_cat-1.0))
@@ -219,7 +225,7 @@ class NormalizingFlowStep(NormalizingFlow):
                 x[:, do_idx] = do_val
 
 #                 x[:, cat_dim]=torch.abs(torch.round(torch.clamp((x[:, cat_dim]*self.sigma.data[cat_dim])+self.mu.data[cat_dim], min=0.0, max=n_cat-1.0)))
-            
+
 #             if do_idx is not None and do_val is not None and len(do_idx) == do_val.shape[1]:
 #                 x[:, do_idx] = do_val
         return x
@@ -238,9 +244,28 @@ class FCNormalizingFlow(NormalizingFlow):
     def forward(self, x, context=None):
         jac_tot = 0.
         inv_idx = torch.arange(x.shape[1] - 1, -1, -1).long()
-        for step in self.steps:
-            step.normalizer.mu.data = self.mu
-            step.normalizer.sigma.data = self.sigma
+
+        # Global data normalization once at the flow level
+        if hasattr(self, "mu") and (self.mu is not None):
+            with torch.no_grad():
+                x = (x - self.mu.data) / self.sigma.data
+            # one-time Jacobian contribution for the affine normalization
+            jac_tot += -torch.log(self.sigma.data).sum()
+
+        for i, step in enumerate(self.steps):
+            # Route global stats to steps (for category handling in invert), but disable per-step normalization
+            if hasattr(step, "mu") and hasattr(step, "sigma"):
+                with torch.no_grad():
+                    step.mu.data = self.mu.data.clone()
+                    step.sigma.data = self.sigma.data.clone()
+            # Disable per-step normalization and per-step norm-jac (done globally above)
+            if hasattr(step, "apply_data_normalization"):
+                step.apply_data_normalization = False
+            step.norm_jac = 0.0
+            # Only the first step adds categorical dequantization noise
+            if hasattr(step, "add_cat_noise"):
+                step.add_cat_noise = (i == 0 and step.cat_dims is not None)
+
             z, jac = step(x, context)
             x = z[:, inv_idx]
             jac_tot += jac
@@ -287,8 +312,21 @@ class FCNormalizingFlow(NormalizingFlow):
 
     def invert(self, z, context=None, do_idx=None, do_val=None):
         with torch.no_grad():
-            for step in range(len(self.steps)):
-                z = self.steps[-step].invert(z, context, do_idx=do_idx, do_val=do_val)
+            # Ensure steps don't apply per-step denormalization
+            for step in self.steps:
+                if hasattr(step, "apply_data_normalization"):
+                    step.apply_data_normalization = False
+                # still provide global stats for categorical handling inside step.invert
+                if hasattr(step, "mu") and hasattr(step, "sigma"):
+                    step.mu.data = self.mu.data.clone()
+                    step.sigma.data = self.sigma.data.clone()
+
+            for i in range(len(self.steps)):
+                z = self.steps[-(i + 1)].invert(z, context, do_idx=do_idx, do_val=do_val)
+
+            # Apply global denormalization once
+            if hasattr(self, "mu") and (self.mu is not None):
+                z = (z * self.sigma.data) + self.mu.data
             return z
 
 
@@ -347,4 +385,3 @@ class CNNormalizingFlow(FCNormalizingFlow):
                 z = z.permute(0, 1, 4, 2, 3).contiguous().view(b_size, C, H, W)
             x = step.invert(z.view(b_size, -1), context)
         return x
-
