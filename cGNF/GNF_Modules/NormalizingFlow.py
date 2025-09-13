@@ -241,35 +241,19 @@ class FCNormalizingFlow(NormalizingFlow):
         self.sigma = step.sigma
         self.cat_dims = step.cat_dims
 
+    # In FCNormalizingFlow.forward
     def forward(self, x, context=None):
-        jac_tot = 0.
-        inv_idx = torch.arange(x.shape[1] - 1, -1, -1).long()
-
-        # Global data normalization once at the flow level
-        if hasattr(self, "mu") and (self.mu is not None):
+        B = x.shape[0]
+        jac_tot = x.new_zeros(B)  # <- was 0.
+        inv_idx = torch.arange(x.shape[1] - 1, -1, -1, device=x.device).long()
+        for step in self.steps:
+            # Safely copy global mu/sigma to step's normalizer
             with torch.no_grad():
-                x = (x - self.mu.data) / self.sigma.data
-            # one-time Jacobian contribution for the affine normalization
-            jac_tot += -torch.log(self.sigma.data).sum()
-
-        for i, step in enumerate(self.steps):
-            # Route global stats to steps (for category handling in invert), but disable per-step normalization
-            if hasattr(step, "mu") and hasattr(step, "sigma"):
-                with torch.no_grad():
-                    step.mu.data = self.mu.data.clone()
-                    step.sigma.data = self.sigma.data.clone()
-            # Disable per-step normalization and per-step norm-jac (done globally above)
-            if hasattr(step, "apply_data_normalization"):
-                step.apply_data_normalization = False
-            step.norm_jac = 0.0
-            # Only the first step adds categorical dequantization noise
-            if hasattr(step, "add_cat_noise"):
-                step.add_cat_noise = (i == 0 and step.cat_dims is not None)
-
-            z, jac = step(x, context)
+                step.normalizer.mu.data.copy_(self.mu.data)
+                step.normalizer.sigma.data.copy_(self.sigma.data)
+            z, jac = step(x, context)  # jac is [B]
             x = z[:, inv_idx]
-            jac_tot += jac
-
+            jac_tot += jac  # now vector += vector
         return z, jac_tot
 
     def constraintsLoss(self):
@@ -335,12 +319,13 @@ class CNNormalizingFlow(FCNormalizingFlow):
         super(CNNormalizingFlow, self).__init__(steps, z_log_density)
         self.dropping_factors = dropping_factors
 
+    # In CNNormalizingFlow.forward
     def forward(self, x, context=None):
         b_size = x.shape[0]
-        jac_tot = 0.
+        jac_tot = x.new_zeros(b_size)  # <- was 0.
         z_all = []
         for step, drop_factors in zip(self.steps, self.dropping_factors):
-            z, jac = step(x, context)
+            z, jac = step(x, context)  # jac is [B]
             d_c, d_h, d_w = drop_factors
             C, H, W = step.img_sizes
             c, h, w = int(C/d_c), int(H/d_h), int(W/d_w)

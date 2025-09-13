@@ -93,7 +93,7 @@ def main():
     print("Preprocessing complete.")
 
     # Train with SplineNormalizer for a few epochs
-    model, data = train(
+    train(
         path=base,
         dataset_name=dataset_name,
         model_name="mixed_model_spline",

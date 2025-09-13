@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='cGNF_spline',
-    version='0.0.3',  # start with a small number and increment it with every change
+    version='0.0.4',  # start with a small number and increment it with every change
     packages=find_packages(),
     install_requires=[
         'torch',
