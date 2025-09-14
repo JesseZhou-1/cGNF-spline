@@ -244,16 +244,33 @@ class FCNormalizingFlow(NormalizingFlow):
     # In FCNormalizingFlow.forward
     def forward(self, x, context=None):
         B = x.shape[0]
-        jac_tot = x.new_zeros(B)  # <- was 0.
+        jac_tot = x.new_zeros(B)
         inv_idx = torch.arange(x.shape[1] - 1, -1, -1, device=x.device).long()
-        for step in self.steps:
-            # Safely copy global mu/sigma to step's normalizer
+
+        # 1) Global data normalization ONCE
+        if hasattr(self, "mu") and (self.mu is not None):
             with torch.no_grad():
-                step.normalizer.mu.data.copy_(self.mu.data)
-                step.normalizer.sigma.data.copy_(self.sigma.data)
+                x = (x - self.mu.data) / self.sigma.data
+            # one-time Jacobian contribution for the affine normalization (broadcast to [B])
+            jac_tot = jac_tot + (-torch.log(self.sigma.data).sum())
+
+        # 2) Route stats to steps; disable per-step normalization and per-step norm_jac
+        for i, step in enumerate(self.steps):
+            if hasattr(step, "mu") and hasattr(step, "sigma"):
+                with torch.no_grad():
+                    step.mu.data = self.mu.data.clone()
+                    step.sigma.data = self.sigma.data.clone()
+            if hasattr(step, "apply_data_normalization"):
+                step.apply_data_normalization = False
+            step.norm_jac = 0.0
+            # only first step injects categorical dequantization noise
+            if hasattr(step, "add_cat_noise"):
+                step.add_cat_noise = (i == 0 and step.cat_dims is not None)
+
             z, jac = step(x, context)  # jac is [B]
             x = z[:, inv_idx]
-            jac_tot += jac  # now vector += vector
+            jac_tot += jac
+
         return z, jac_tot
 
     def constraintsLoss(self):
