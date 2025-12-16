@@ -72,13 +72,13 @@ This guide walks you through setting up the Python environment and utilizing `cG
    Install the `cGNF` package:
 
      ```bash
-     pip install cGNF
+     pip install git+https://github.com/JesseZhou-1/cGNF-spline.git
      ```
 
    To update the package in the future:
 
      ```bash
-     pip install --upgrade cGNF
+     pip install --upgrade git+https://github.com/JesseZhou-1/cGNF-spline.git
      ```
 
    If you need PyTorch with CUDA support:
