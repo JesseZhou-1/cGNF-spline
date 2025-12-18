@@ -12,36 +12,42 @@ class NormalizingFlow(nn.Module):
     '''
     Should return the x transformed and the log determinant of the Jacobian of the transformation
     '''
+
     def forward(self, x, context=None):
         pass
 
     '''
     Should return a term relative to the loss.
     '''
+
     def constraintsLoss(self):
         pass
 
     '''
     Should return the dagness of the associated graph.
     '''
+
     def DAGness(self):
         pass
 
     '''
     Step in the optimization procedure;
     '''
+
     def step(self, epoch_number, loss_avg):
         pass
 
     '''
     Return a list containing the conditioners.
     '''
+
     def getConditioners(self):
         pass
 
     '''
     Return True if the architecture is invertible.
     '''
+
     def isInvertible(self):
         pass
 
@@ -55,6 +61,7 @@ class NormalizingFlow(nn.Module):
     '''
     Return the x that would generate z: [B, d] tensor.
     '''
+
     def invert(self, z, context=None):
         pass
 
@@ -71,64 +78,56 @@ class NormalizingFlowStep(NormalizingFlow):
         if normalizer.mu is not None or normalizer.sigma is not None:
             self.mu = nn.Parameter(normalizer.mu.data.clone(), requires_grad=False)
             self.sigma = nn.Parameter(normalizer.sigma.data.clone(), requires_grad=False)
-            
-            
+
             # normalization volume correction log-jacobian
             with torch.no_grad():
                 self.norm_jac = -torch.log(self.sigma.data).sum().detach()
 
         if self.cat_dims is not None:
-            self.U_noise = MultivariateNormal(torch.zeros(len(self.cat_dims)), torch.eye(len(self.cat_dims))/(6*4))
-            
-        self.apply_data_normalization = True
-        self.add_cat_noise = (self.cat_dims is not None)
-
+            self.U_noise = MultivariateNormal(torch.zeros(len(self.cat_dims)), torch.eye(len(self.cat_dims)) / (6 * 4))
 
     def forward(self, x_unnorm, context=None):
         with torch.no_grad():
-            if self.apply_data_normalization and (self.mu is not None or self.sigma is not None):
-                x = (x_unnorm - self.mu.data) / self.sigma.data
-            else:
-                x = x_unnorm
+            x = (x_unnorm - self.mu.data) / self.sigma.data
 
-#         print(f'f_x_mu=\n{self.mu.data}')
-#         print(f'f_x_sigma=\n{self.sigma.data}')
-#         print(f'f_x_unnorm=\n{x_unnorm[:4]}')
-#         print(f'f_x=\n{x[:4]}')
+        #         print(f'f_x_mu=\n{self.mu.data}')
+        #         print(f'f_x_sigma=\n{self.sigma.data}')
+        #         print(f'f_x_unnorm=\n{x_unnorm[:4]}')
+        #         print(f'f_x=\n{x[:4]}')
         h = self.conditioner(x, context)
-#         print(f'f_h=\n{h.sum()}')
+        #         print(f'f_h=\n{h.sum()}')
 
-#         print(f'f_x_mu=\n{self.mu.data}')
-#         print(f'f_x_sigma=\n{self.sigma.data}')
-#         print(f'f_x_unnorm=\n{x_unnorm[:4]}')
-#         print(f'f_x=\n{x[:4]}')
+        #         print(f'f_x_mu=\n{self.mu.data}')
+        #         print(f'f_x_sigma=\n{self.sigma.data}')
+        #         print(f'f_x_unnorm=\n{x_unnorm[:4]}')
+        #         print(f'f_x=\n{x[:4]}')
 
-        # Add categorical dequantization noise only if enabled
-        if self.add_cat_noise and (self.cat_dims is not None):
-    #             keys = self.cat_dims.keys()
-                keys = list(self.cat_dims)#.keys()
-    #             print(keys)
-                with torch.no_grad():
-                    u_noise = torch.zeros(x.shape).to(x.device)
-            #                     u_noise[:,keys] = torch.rand(torch.Size([x.shape[0],len(keys)])).to(x.device)#.float()
-        #                 u_noise[:,keys] = torch.clamp(torch.randn(torch.Size([x.shape[0],len(keys)])).to(x.device)/6, max=1/2, min=-1/2)#.float()
-#                     u_noise[:,keys] = self.U_noise.sample(torch.Size([x.shape[0]])).to(x.device)
-#                     u_noise[:,keys] -= self.mu.data[keys]
-#                     u_noise[:,keys] /= self.sigma.data[keys]
-#                     u_noise[:,keys] = torch.normal(0.0, (self.sigma.data[keys].reciprocal()/6/4).expand(torch.Size([x.shape[0], len(keys)]))).to(x.device)
-                    u_noise[:,keys] = torch.normal(0.0, (self.sigma.data[keys].reciprocal()/8).expand(torch.Size([x.shape[0], len(keys)]))).to(x.device)
-#                     u_noise[:,keys] = torch.normal(0.0, (self.sigma.data[keys]/(6)).expand(torch.Size([x.shape[0], len(keys)]))).to(x.device)
-#                     u_noise[:,keys] = torch.normal(u_noise[:,keys],1/(6*4)).float().to(x.device)
-#                     u_noise[:,keys] = torch.normal(u_noise[:,keys],1/(6)).float().to(x.device)
-#                 else:
-#                     u_noise[:,keys] = torch.ones(torch.Size([x.shape[0],len(keys)])).to(x.device)*0.0#.float()
-                x = x + u_noise
+        # if self.training:
+        if self.cat_dims is not None:
+            #             keys = self.cat_dims.keys()
+            keys = list(self.cat_dims)  # .keys()
+            #             print(keys)
+            with torch.no_grad():
+                u_noise = torch.zeros(x.shape).to(x.device)
+                #                     u_noise[:,keys] = torch.rand(torch.Size([x.shape[0],len(keys)])).to(x.device)#.float()
+                #                 u_noise[:,keys] = torch.clamp(torch.randn(torch.Size([x.shape[0],len(keys)])).to(x.device)/6, max=1/2, min=-1/2)#.float()
+                #                     u_noise[:,keys] = self.U_noise.sample(torch.Size([x.shape[0]])).to(x.device)
+                #                     u_noise[:,keys] -= self.mu.data[keys]
+                #                     u_noise[:,keys] /= self.sigma.data[keys]
+                #                     u_noise[:,keys] = torch.normal(0.0, (self.sigma.data[keys].reciprocal()/6/4).expand(torch.Size([x.shape[0], len(keys)]))).to(x.device)
+                u_noise[:, keys] = torch.normal(0.0, (self.sigma.data[keys].reciprocal() / 8).expand(
+                    torch.Size([x.shape[0], len(keys)]))).to(x.device)
+            #                     u_noise[:,keys] = torch.normal(0.0, (self.sigma.data[keys]/(6)).expand(torch.Size([x.shape[0], len(keys)]))).to(x.device)
+            #                     u_noise[:,keys] = torch.normal(u_noise[:,keys],1/(6*4)).float().to(x.device)
+            #                     u_noise[:,keys] = torch.normal(u_noise[:,keys],1/(6)).float().to(x.device)
+            #                 else:
+            #                     u_noise[:,keys] = torch.ones(torch.Size([x.shape[0],len(keys)])).to(x.device)*0.0#.float()
+            x = x + u_noise
 
         z, jac = self.normalizer(x, h, context)
-#         print(f'f_z=\n{z[:4]}')
+        #         print(f'f_z=\n{z[:4]}')
 
-
-        return z, torch.log(jac).sum(1)+self.norm_jac
+        return z, torch.log(jac).sum(1) + self.norm_jac
 
     def constraintsLoss(self):
         if type(self.conditioner) is DAGConditioner:
@@ -157,78 +156,80 @@ class NormalizingFlowStep(NormalizingFlow):
         return True
 
     def invert(self, z, context=None, do_idx=None, do_val=None):
-#         print(f'i_z=\n{z[:4]}')
+        #         print(f'i_z=\n{z[:4]}')
         with torch.no_grad():
             x = x_prev = torch.zeros_like(z)
-#             x = (x_unnorm-self.mu.data)/self.sigma.data
+            #             x = (x_unnorm-self.mu.data)/self.sigma.data
             if self.cat_dims is not None:
                 cat_dims = list(self.cat_dims.keys())
                 n_cats = list(self.cat_dims.values())
 
-    #         i=0
-    #         while torch.norm(x - x_prev) > 5e-4:
+            #         i=0
+            #         while torch.norm(x - x_prev) > 5e-4:
             for i in range(self.conditioner.depth() + 1):
-#                 print(i, "/", self.conditioner.depth() + 1)
+                #                 print(i, "/", self.conditioner.depth() + 1)
                 if do_idx is not None and do_val is not None and len(do_idx) == do_val.shape[1]:
-#                     x_unnorm[:, do_idx] = do_val
+                    #                     x_unnorm[:, do_idx] = do_val
                     if self.mu is not None or self.sigma is not None:
-                        x[:, do_idx] = (do_val-self.mu.data[do_idx])/self.sigma.data[do_idx]
+                        x[:, do_idx] = (do_val - self.mu.data[do_idx]) / self.sigma.data[do_idx]
 
-    #             with torch.no_grad():
-#                     x = (x_unnorm-self.mu.data)/self.sigma.data
+                #             with torch.no_grad():
+                #                     x = (x_unnorm-self.mu.data)/self.sigma.data
 
-    #             print(f'i_x_mu=\n{self.mu.data}')
-    #             print(f'i_x_sigma=\n{self.sigma.data}')
-    #             print(f'i_x_unnorm_{i}=\n{x_unnorm[:4]}')
-    #             print(f'i_x_{i}=\n{x[:4]}')
+                #             print(f'i_x_mu=\n{self.mu.data}')
+                #             print(f'i_x_sigma=\n{self.sigma.data}')
+                #             print(f'i_x_unnorm_{i}=\n{x_unnorm[:4]}')
+                #             print(f'i_x_{i}=\n{x[:4]}')
 
-    #                 if i in do_idx:
-    #                     continue
+                #                 if i in do_idx:
+                #                     continue
                 h = self.conditioner(x, context)
-    #             print(f'i_h_{i}=\n{h.sum()}')
+                #             print(f'i_h_{i}=\n{h.sum()}')
                 x_prev = x
                 x = self.normalizer.inverse_transform(z, h, context)
-    #             if do_idx is not None and do_val is not None and len(do_idx) == do_val.shape[1]:
-    #                 x[:, do_idx] = do_val
-    #                 x_unnorm = (x*self.sigma.data)+self.mu.data
+                #             if do_idx is not None and do_val is not None and len(do_idx) == do_val.shape[1]:
+                #                 x[:, do_idx] = do_val
+                #                 x_unnorm = (x*self.sigma.data)+self.mu.data
 
                 if self.mu is not None or self.sigma is not None:
-#                     with torch.no_grad():
+                    #                     with torch.no_grad():
                     if self.cat_dims is not None:
-#                         cat_dims = list(self.cat_dims.keys())
-#                         n_cats = list(self.cat_dims.values())
+                        #                         cat_dims = list(self.cat_dims.keys())
+                        #                         n_cats = list(self.cat_dims.values())
                         for cat_dim, n_cat in self.cat_dims.items():
-                            x[:, cat_dim]=torch.abs(torch.clamp(torch.round((x[:, cat_dim]*self.sigma.data[cat_dim])+self.mu.data[cat_dim]), min=0.0, max=n_cat-1.0))
-#                             x[:, cat_dim]=torch.abs(torch.round(torch.clamp((x[:, cat_dim]*self.sigma.data[cat_dim])+self.mu.data[cat_dim], min=0.0, max=n_cat-1.0)))
-            #                 x[:, self.cat_dims]=torch.floor(x[:, self.cat_dims])
-            #                 x[:, self.cat_dims]=(x[:, self.cat_dims] >= 1.0).float()
-                        x[:, cat_dims] = (x[:, cat_dims]-self.mu.data[cat_dims])/self.sigma.data[cat_dims]
+                            x[:, cat_dim] = torch.abs(torch.clamp(
+                                torch.round((x[:, cat_dim] * self.sigma.data[cat_dim]) + self.mu.data[cat_dim]),
+                                min=0.0, max=n_cat - 1.0))
+                        #                             x[:, cat_dim]=torch.abs(torch.round(torch.clamp((x[:, cat_dim]*self.sigma.data[cat_dim])+self.mu.data[cat_dim], min=0.0, max=n_cat-1.0)))
+                        #                 x[:, self.cat_dims]=torch.floor(x[:, self.cat_dims])
+                        #                 x[:, self.cat_dims]=(x[:, self.cat_dims] >= 1.0).float()
+                        x[:, cat_dims] = (x[:, cat_dims] - self.mu.data[cat_dims]) / self.sigma.data[cat_dims]
 
                 if torch.norm(x - x_prev) == 0.0:
-    #                 if self.mu is not None or self.sigma is not None:
-    #                     with torch.no_grad():
-    #                         x_unnorm = (x*self.sigma.data)+self.mu.data
+                    #                 if self.mu is not None or self.sigma is not None:
+                    #                     with torch.no_grad():
+                    #                         x_unnorm = (x*self.sigma.data)+self.mu.data
                     break
-    #             i+=1
+            #             i+=1
 
-    #         print(f'i_x_mu=\n{self.mu.data}')
-    #         print(f'i_x_sigma=\n{self.sigma.data}')
-    #         print(f'i_x_unnorm_final=\n{x_unnorm[:4]}')
-    #         print(f'i_x_final=\n{x[:4]}')
-#             x[:, cat_dims]=(x[:, cat_dims]*self.sigma.data[cat_dims])+self.mu.data[cat_dims]
-            if self.apply_data_normalization and (self.mu is not None or self.sigma is not None):
-                x = (x * self.sigma.data) + self.mu.data
+            #         print(f'i_x_mu=\n{self.mu.data}')
+            #         print(f'i_x_sigma=\n{self.sigma.data}')
+            #         print(f'i_x_unnorm_final=\n{x_unnorm[:4]}')
+            #         print(f'i_x_final=\n{x[:4]}')
+            #             x[:, cat_dims]=(x[:, cat_dims]*self.sigma.data[cat_dims])+self.mu.data[cat_dims]
+            x = (x * self.sigma.data) + self.mu.data
             if self.cat_dims is not None:
                 for cat_dim, n_cat in self.cat_dims.items():
-                    x[:, cat_dim]=torch.abs(torch.clamp(torch.round(x[:, cat_dim]), min=0.0, max=n_cat-1.0))
+                    x[:, cat_dim] = torch.abs(torch.clamp(torch.round(x[:, cat_dim]), min=0.0, max=n_cat - 1.0))
             if do_idx is not None and do_val is not None and len(do_idx) == do_val.shape[1]:
                 x[:, do_idx] = do_val
 
-#                 x[:, cat_dim]=torch.abs(torch.round(torch.clamp((x[:, cat_dim]*self.sigma.data[cat_dim])+self.mu.data[cat_dim], min=0.0, max=n_cat-1.0)))
+        #                 x[:, cat_dim]=torch.abs(torch.round(torch.clamp((x[:, cat_dim]*self.sigma.data[cat_dim])+self.mu.data[cat_dim], min=0.0, max=n_cat-1.0)))
 
-#             if do_idx is not None and do_val is not None and len(do_idx) == do_val.shape[1]:
-#                 x[:, do_idx] = do_val
+        #             if do_idx is not None and do_val is not None and len(do_idx) == do_val.shape[1]:
+        #                 x[:, do_idx] = do_val
         return x
+
 
 class FCNormalizingFlow(NormalizingFlow):
     def __init__(self, steps, z_log_density):
@@ -241,33 +242,14 @@ class FCNormalizingFlow(NormalizingFlow):
         self.sigma = step.sigma
         self.cat_dims = step.cat_dims
 
-    # In FCNormalizingFlow.forward
     def forward(self, x, context=None):
         B = x.shape[0]
         jac_tot = x.new_zeros(B)
-        inv_idx = torch.arange(x.shape[1] - 1, -1, -1, device=x.device).long()
-
-        # 1) Global data normalization ONCE
-        if hasattr(self, "mu") and (self.mu is not None):
-            with torch.no_grad():
-                x = (x - self.mu.data) / self.sigma.data
-            # one-time Jacobian contribution for the affine normalization (broadcast to [B])
-            jac_tot = jac_tot + (-torch.log(self.sigma.data).sum())
-
-        # 2) Route stats to steps; disable per-step normalization and per-step norm_jac
-        for i, step in enumerate(self.steps):
-            if hasattr(step, "mu") and hasattr(step, "sigma"):
-                with torch.no_grad():
-                    step.mu.data = self.mu.data.clone()
-                    step.sigma.data = self.sigma.data.clone()
-            if hasattr(step, "apply_data_normalization"):
-                step.apply_data_normalization = False
-            step.norm_jac = 0.0
-            # only first step injects categorical dequantization noise
-            if hasattr(step, "add_cat_noise"):
-                step.add_cat_noise = (i == 0 and step.cat_dims is not None)
-
-            z, jac = step(x, context)  # jac is [B]
+        inv_idx = torch.arange(x.shape[1] - 1, -1, -1).long()
+        for step in self.steps:
+            step.normalizer.mu.data = self.mu
+            step.normalizer.sigma.data = self.sigma
+            z, jac = step(x, context)
             x = z[:, inv_idx]
             jac_tot += jac
 
@@ -276,7 +258,7 @@ class FCNormalizingFlow(NormalizingFlow):
     def constraintsLoss(self):
         loss = 0.
         for step in self.steps:
-                loss += step.constraintsLoss()
+            loss += step.constraintsLoss()
         return loss
 
     def DAGness(self):
@@ -313,21 +295,8 @@ class FCNormalizingFlow(NormalizingFlow):
 
     def invert(self, z, context=None, do_idx=None, do_val=None):
         with torch.no_grad():
-            # Ensure steps don't apply per-step denormalization
-            for step in self.steps:
-                if hasattr(step, "apply_data_normalization"):
-                    step.apply_data_normalization = False
-                # still provide global stats for categorical handling inside step.invert
-                if hasattr(step, "mu") and hasattr(step, "sigma"):
-                    step.mu.data = self.mu.data.clone()
-                    step.sigma.data = self.sigma.data.clone()
-
-            for i in range(len(self.steps)):
-                z = self.steps[-(i + 1)].invert(z, context, do_idx=do_idx, do_val=do_val)
-
-            # Apply global denormalization once
-            if hasattr(self, "mu") and (self.mu is not None):
-                z = (z * self.sigma.data) + self.mu.data
+            for i in range(1, len(self.steps) + 1):
+                z = self.steps[-i].invert(z, context, do_idx=do_idx, do_val=do_val)
             return z
 
 
@@ -336,18 +305,17 @@ class CNNormalizingFlow(FCNormalizingFlow):
         super(CNNormalizingFlow, self).__init__(steps, z_log_density)
         self.dropping_factors = dropping_factors
 
-    # In CNNormalizingFlow.forward
     def forward(self, x, context=None):
         b_size = x.shape[0]
-        jac_tot = x.new_zeros(b_size)  # <- was 0.
+        jac_tot = 0.
         z_all = []
         for step, drop_factors in zip(self.steps, self.dropping_factors):
-            z, jac = step(x, context)  # jac is [B]
+            z, jac = step(x, context)
             d_c, d_h, d_w = drop_factors
             C, H, W = step.img_sizes
-            c, h, w = int(C/d_c), int(H/d_h), int(W/d_w)
+            c, h, w = int(C / d_c), int(H / d_h), int(W / d_w)
             z_reshaped = z.view(-1, C, H, W).unfold(1, d_c, d_c).unfold(2, d_h, d_h) \
-                    .unfold(3, d_w, d_w).contiguous().view(b_size, c, h, w, -1)
+                .unfold(3, d_w, d_w).contiguous().view(b_size, c, h, w, -1)
             z_all += [z_reshaped[:, :, :, :, 1:].contiguous().view(b_size, -1)]
             x = z.view(-1, C, H, W).unfold(1, d_c, d_c).unfold(2, d_h, d_h) \
                     .unfold(3, d_w, d_w).contiguous().view(b_size, c, h, w, -1)[:, :, :, :, 0] \
@@ -365,8 +333,8 @@ class CNNormalizingFlow(FCNormalizingFlow):
             d_c, d_h, d_w = drop_factors
             C, H, W = step.img_sizes
             c, h, w = int(C / d_c), int(H / d_h), int(W / d_w)
-            nb_z = C*H*W - c*h*w if C*H*W != c*h*w else c*h*w
-            z_all += [z[:, i:i+nb_z]]
+            nb_z = C * H * W - c * h * w if C * H * W != c * h * w else c * h * w
+            z_all += [z[:, i:i + nb_z]]
             i += nb_z
 
         x = 0.
@@ -377,7 +345,7 @@ class CNNormalizingFlow(FCNormalizingFlow):
             C, H, W = step.img_sizes
             c, h, w = int(C / d_c), int(H / d_h), int(W / d_w)
             z = z_all[-i]
-            if c*h*w != C*H*W:
+            if c * h * w != C * H * W:
                 z = z.view(b_size, c, h, w, -1)
                 x = x.view(b_size, c, h, w, 1)
                 z = torch.cat((x, z), 4)
